@@ -5203,7 +5203,7 @@ char const * LineEditor::edit(int maxLength)
 
         // "ESC [ B" : cursor Down
         case 'B':
-          performCursorUp();
+          performCursorDown();
           m_state = 0;
           break;
 
