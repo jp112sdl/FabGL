@@ -476,7 +476,7 @@ void TFTController::SPIWriteByte(uint8_t data)
   #endif
 
   if (m_SPIDevHandle) {
-    spi_transaction_t ta;
+    spi_transaction_t ta = { };  // zero init (ESP-IDF 5 added override_freq_hz)
     ta.flags = SPI_TRANS_USE_TXDATA;
     ta.length = 8;
     ta.rxlength = 0;
@@ -497,7 +497,7 @@ void TFTController::SPIWriteWord(uint16_t data)
   #endif
 
   if (m_SPIDevHandle) {
-    spi_transaction_t ta;
+    spi_transaction_t ta = { };  // zero init (ESP-IDF 5 added override_freq_hz)
     ta.flags = SPI_TRANS_USE_TXDATA;
     ta.length = 16;
     ta.rxlength = 0;
@@ -518,7 +518,7 @@ void TFTController::SPIWriteBuffer(void * data, size_t size)
   #endif
 
   if (m_SPIDevHandle) {
-    spi_transaction_t ta;
+    spi_transaction_t ta = { };  // zero init (ESP-IDF 5 added override_freq_hz)
     ta.flags = 0;
     ta.length = 8 * size;
     ta.rxlength = 0;

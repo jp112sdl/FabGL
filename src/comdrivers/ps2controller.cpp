@@ -31,6 +31,7 @@
 #include "esp32/ulp.h"
 #include "driver/rtc_io.h"
 #include "soc/sens_reg.h"
+#include "soc/rtc_io_reg.h"
 #if __has_include("soc/rtc_io_periph.h")
   #include "soc/rtc_io_periph.h"
 #endif
@@ -255,15 +256,29 @@ namespace fabgl {
 // ULP clock is 8MHz, so every cycle takes 0.125us and 1us = 8 cycles
 #define M_DELAY_US(us) I_DELAY(us * 8)
 
+// same of I_END(), but it is a constant expression (ESP-IDF I_END() calls SOC_REG_TO_ULP_PERIPH_SEL(), which is
+// not constexpr), so ULP_code[] can be placed in flash instead of RAM
+#define I_END_CONST() { .wr_reg = { \
+    .addr       = (RTC_CNTL_STATE0_REG / sizeof(uint32_t)) & 0xff, \
+    .periph_sel = RD_REG_PERIPH_RTC_CNTL, \
+    .data       = 0, \
+    .low        = RTC_CNTL_ULP_CP_SLP_TIMER_EN_S, \
+    .high       = RTC_CNTL_ULP_CP_SLP_TIMER_EN_S, \
+    .opcode     = OPCODE_WR_REG } }
+
 
 ////////////////////////////////////////////////////////////////////////////
 
 
 
-// Locations inside RTC low speed memory
+// Locations inside RTC low speed memory (32 bit words)
+// note: ESP-IDF reserves just CONFIG_ULP_COPROC_RESERVE_MEM bytes (usually 512) at the beginning of RTC slow memory for the ULP
+//       program and places its own RTC variables (and RTC_DATA_ATTR/RTC_NOINIT_ATTR/RTC_SLOW_ATTR variables) just after it.
+//       To avoid overwriting them, program and variables are placed at the end of RTC slow memory (excluding the last 24 bytes,
+//       reserved by ESP-IDF 5).
 
-#define RTCMEM_PROG_START           0x000  // where the program begins
-#define RTCMEM_VARS_START           0x200  // where the variables begin
+#define RTCMEM_PROG_START           0x5E0                         // where the program begins
+#define RTCMEM_VARS_START           (RTCMEM_PROG_START + 0x200)   // where the variables begin
 
 // commands (set by CPU, reset by ULP)
 #define RTCMEM_PORT0_TX             (RTCMEM_VARS_START +  0)  // 1 = send data to port 0
@@ -302,8 +317,8 @@ namespace fabgl {
 #define WAKE_THRESHOLD     3000
 
 
-// check RTC memory occupation
-#if RTCMEM_LASTVAR >= 0x800
+// check RTC memory occupation (0x7FA = first word reserved by ESP-IDF 5 at the end of RTC slow memory)
+#if RTCMEM_LASTVAR >= 0x7FA
 #error "ULP program too big"
 #endif
 
@@ -421,7 +436,7 @@ namespace fabgl {
 const ulp_insn_t ULP_code[] = {
 
   // Stop ULP timer, not necessary because this routine never ends
-  I_END(),
+  I_END_CONST(),
 
   // R3 contains just 0x0000, for entire execution, which is the base address of all variabiles load, so it is possible to do
   // I_LD(R#, R3, RTC_MEM_XX) instead of MEM_READR(), saving one instruction
@@ -1038,7 +1053,7 @@ static void replace_placeholders(uint32_t prg_start, int size, bool port0Enabled
   }
 
   for (uint32_t i = 0; i < size; ++i) {
-    ulp_insn_t * ins = (ulp_insn_t *) RTC_SLOW_MEM + i;
+    ulp_insn_t * ins = (ulp_insn_t *) RTC_SLOW_MEM + prg_start + i;
     if (ins->macro.opcode == OPCODE_PLACEHOLDER) {
       int ps2port = ins->macro.unused;
       if ((port0Enabled && ps2port == 0) || (port1Enabled && ps2port == 1)) {
@@ -1149,7 +1164,7 @@ void PS2Controller::begin(gpio_num_t port0_clkGPIO, gpio_num_t port0_datGPIO, gp
     ulp_process_macros_and_load_ex(RTCMEM_PROG_START, ULP_code, &size);         // convert macros to ULP code
     replace_placeholders(RTCMEM_PROG_START, size, s_portEnabled[0], port0_clkGPIO, port0_datGPIO, s_portEnabled[1], port1_clkGPIO, port1_datGPIO); // replace GPIO placeholders
     //printf("prog size = %d\n", size);
-    assert(size < RTCMEM_VARS_START && "ULP Program too long, increase RTCMEM_VARS_START");
+    assert(size < RTCMEM_VARS_START - RTCMEM_PROG_START && "ULP Program too long, increase RTCMEM_VARS_START");
 
     REG_SET_FIELD(SENS_SAR_START_FORCE_REG, SENS_PC_INIT, RTCMEM_PROG_START);   // set entry point
     SET_PERI_REG_MASK(SENS_SAR_START_FORCE_REG, SENS_ULP_CP_FORCE_START_TOP);   // enable FORCE START

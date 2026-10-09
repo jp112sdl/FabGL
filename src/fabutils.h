@@ -41,7 +41,13 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
-#include <driver/adc.h>
+#if __has_include("driver/adc_types_legacy.h")
+  // ESP-IDF 5 or newer: include just ADC types (legacy ADC driver conflicts with the new one)
+  #include "driver/adc_types_legacy.h"
+  #include "driver/gpio.h"
+#else
+  #include <driver/adc.h>
+#endif
 #include <esp_system.h>
 #include "sdmmc_cmd.h"
 #include "soc/frc_timer_reg.h"
@@ -219,6 +225,14 @@ void APLLCalcParams(double freq, APLLParams * params, uint8_t * a, uint8_t * b, 
 
 #ifndef FABGL_EMULATED
 int calcI2STimingParams(int sampleRate, int * outA, int * outB, int * outN, int * outM);
+
+// enables APLL using params calculated by APLLCalcParams()
+void enableAPLL(APLLParams const & params);
+
+void disableAPLL();
+
+// enables built-in DAC (gpio must be GPIO_NUM_25 or GPIO_NUM_26) and connects it to I2S0 DMA output
+void enableI2SDAC(gpio_num_t gpio);
 #endif
 
 

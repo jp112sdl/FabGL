@@ -69,10 +69,11 @@ struct I2CJobInfo {
   uint8_t   address;
   uint16_t  size;
   uint16_t  timeout;
-  uint32_t  readCount;
   #ifdef FABGL_OLDI2C
+  uint32_t  readCount;
   i2c_err_t lastError;
   #else
+  size_t    readCount;
   esp_err_t lastError;
   #endif
 };

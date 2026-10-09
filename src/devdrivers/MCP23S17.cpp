@@ -164,7 +164,7 @@ void MCP23S17::writeReg(uint8_t addr, uint8_t value, uint8_t hwAddr)
   spi_device_acquire_bus(m_SPIDevHandle, portMAX_DELAY);
 
   uint8_t txdata[3] = { (uint8_t)(0b01000000 | (hwAddr << 1)), addr, value };
-  spi_transaction_t ta;
+  spi_transaction_t ta = { };  // zero init (ESP-IDF 5 added override_freq_hz)
   ta.flags      = 0;
   ta.length     = 24;
   ta.rxlength   = 0;
@@ -182,7 +182,7 @@ uint8_t MCP23S17::readReg(uint8_t addr, uint8_t hwAddr)
 
   uint8_t txdata[3] = { (uint8_t)(0b01000001 | (hwAddr << 1)), addr };
   uint8_t rxdata[3] = { 0 };
-  spi_transaction_t ta;
+  spi_transaction_t ta = { };  // zero init (ESP-IDF 5 added override_freq_hz)
   ta.flags      = 0;
   ta.length     = 24;
   ta.rxlength   = 24;
@@ -203,7 +203,7 @@ void MCP23S17::writeReg16(uint8_t addr, uint16_t value, uint8_t hwAddr)
   spi_device_acquire_bus(m_SPIDevHandle, portMAX_DELAY);
 
   uint8_t txdata[4] = { (uint8_t)(0b01000000 | (hwAddr << 1)), addr, (uint8_t)(value & 0xff), (uint8_t)(value >> 8) };
-  spi_transaction_t ta;
+  spi_transaction_t ta = { };  // zero init (ESP-IDF 5 added override_freq_hz)
   ta.flags      = 0;
   ta.length     = 32;
   ta.rxlength   = 0;
@@ -221,7 +221,7 @@ uint16_t MCP23S17::readReg16(uint8_t addr, uint8_t hwAddr)
 
   uint8_t txdata[4] = { (uint8_t)(0b01000001 | (hwAddr << 1)), addr };
   uint8_t rxdata[4] = { 0 };
-  spi_transaction_t ta;
+  spi_transaction_t ta = { };  // zero init (ESP-IDF 5 added override_freq_hz)
   ta.flags      = 0;
   ta.length     = 32;
   ta.rxlength   = 32;

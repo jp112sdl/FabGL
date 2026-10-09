@@ -40,9 +40,11 @@
 #include <memory>
 
 #include "esp32-hal-psram.h"
+#if __has_include("esp_spiram.h")
 extern "C" {
 #include "esp_spiram.h"
 }
+#endif
 #include "esp_sntp.h"
 
 #include <Preferences.h>
@@ -201,14 +203,24 @@ void updateDateTime()
 
     // we need time right now
     ibox.progressBox("", nullptr, true, 200, [&](fabgl::ProgressForm * form) {
+      #if FABGL_ESP_IDF_VERSION >= FABGL_ESP_IDF_VERSION_VAL(5, 0, 0)
+      esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
+      esp_sntp_setservername(0, "pool.ntp.org");
+      esp_sntp_init();
+      #else
       sntp_setoperatingmode(SNTP_OPMODE_POLL);
       sntp_setservername(0, (char*)"pool.ntp.org");
       sntp_init();
+      #endif
       for (int i = 0; i < 12 && sntp_get_sync_status() != SNTP_SYNC_STATUS_COMPLETED; ++i) {
         form->update(i * 100 / 12, "Getting date-time from SNTP...");
         delay(500);
       }
+      #if FABGL_ESP_IDF_VERSION >= FABGL_ESP_IDF_VERSION_VAL(5, 0, 0)
+      esp_sntp_stop();
+      #else
       sntp_stop();
+      #endif
       ibox.setAutoOK(2);
       ibox.message("", "Date and Time updated. Restarting...");
       #ifndef FABGL_EMULATED
@@ -381,11 +393,17 @@ void setup()
 
   // note: we use just 2MB of PSRAM so the infamous PSRAM bug should not happen. But to avoid gcc compiler hack (-mfix-esp32-psram-cache-issue)
   // we enable PSRAM at runtime, otherwise the hack slows down CPU too much (PSRAM_HACK is no more required).
+  #if FABGL_ESP_IDF_VERSION >= FABGL_ESP_IDF_VERSION_VAL(5, 0, 0)
+  // Arduino core 3.x always initializes PSRAM at startup (also when PSRAM is disabled in the development env)
+  if (!psramFound())
+    ibox.message("Error!", "This app requires a board with PSRAM!", nullptr, nullptr);
+  #else
   if (esp_spiram_init() != ESP_OK)
     ibox.message("Error!", "This app requires a board with PSRAM!", nullptr, nullptr);
 
   #ifndef BOARD_HAS_PSRAM
   esp_spiram_init_cache();
+  #endif
   #endif
 
   if (!FileBrowser::mountSDCard(false, SD_MOUNT_PATH, 8))   // @TODO: reduce to 4?
