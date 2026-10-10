@@ -511,8 +511,14 @@ struct Delegate {
   void operator=(Func f) {
     cleanUp();
     m_closure  = [] (void * func, const Params & ...params) -> void { (*(Func *)func)(params...); };
-    m_func     = heap_caps_malloc(sizeof(Func), MALLOC_CAP_32BIT | MALLOC_CAP_INTERNAL);
-    moveItems<uint32_t*>((uint32_t*)m_func, (uint32_t*)&f, sizeof(Func) / sizeof(uint32_t));
+    // m_func may be allocated in IRAM, which allows only 32 bit accesses.
+    // Closure is copied using memcpy() into a temporary buffer, otherwise (strict aliasing) newer compilers
+    // remove the closure initialization (captured variables are lost)
+    constexpr int words = (sizeof(Func) + sizeof(uint32_t) - 1) / sizeof(uint32_t);
+    uint32_t closure[words];
+    memcpy(closure, &f, sizeof(Func));
+    m_func     = heap_caps_malloc(words * sizeof(uint32_t), MALLOC_CAP_32BIT | MALLOC_CAP_INTERNAL);
+    moveItems<uint32_t*>((uint32_t*)m_func, closure, words);
   }
 
   // denied assignment from Delegate
