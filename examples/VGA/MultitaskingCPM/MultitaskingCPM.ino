@@ -76,8 +76,8 @@ void setup()
 {
   //Serial.begin(115200); delay(500); Serial.write("\r\nReset\r\n");
 
-  disableCore0WDT();
-  disableCore1WDT();
+  // remove idle tasks from Task Watchdog (disableCore0WDT/disableCore1WDT flood the log with ESP-IDF 5)
+  fabgl::disableIdleTasksWatchdog();
 
   // Reduces some defaults to save RAM...
   fabgl::VGAController::queueSize                    = 128;

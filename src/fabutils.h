@@ -1113,6 +1113,14 @@ uint32_t getApbFrequency();
 uint32_t getCPUFrequencyMHz();
 
 
+#ifndef FABGL_EMULATED
+// Removes idle tasks of both cores from the Task Watchdog.
+// Use instead of Arduino disableCore0WDT()/disableCore1WDT(): with ESP-IDF 5 they leave the idle hooks
+// installed, which continuously log "task_wdt: esp_task_wdt_reset(): task not found" errors.
+void disableIdleTasksWatchdog();
+#endif
+
+
 
 ///////////////////////////////////////////////////////////////////////////////////////////
 ///// FRC1 timer

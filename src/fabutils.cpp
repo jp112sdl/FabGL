@@ -242,6 +242,42 @@ uint32_t getCPUFrequencyMHz()
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////
+// disableIdleTasksWatchdog
+#ifndef FABGL_EMULATED
+void disableIdleTasksWatchdog()
+{
+  #if FABGL_ESP_IDF_VERSION >= FABGL_ESP_IDF_VERSION_VAL(5, 0, 0)
+  static bool disabled = false;
+  if (!disabled) {
+    uint32_t idleCoreMask = 0;
+    #if CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0
+    idleCoreMask |= 1 << 0;
+    #endif
+    #if CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1
+    idleCoreMask |= 1 << 1;
+    #endif
+    // idle tasks already removed (ie by disableCore0WDT()) must be added again, otherwise esp_task_wdt_reconfigure() aborts
+    for (int core = 0; core < portNUM_PROCESSORS; ++core)
+      if ((idleCoreMask & (1 << core)) && esp_task_wdt_status(xTaskGetIdleTaskHandleForCore(core)) == ESP_ERR_NOT_FOUND)
+        esp_task_wdt_add(xTaskGetIdleTaskHandleForCore(core));
+    // reconfiguring without idle tasks also removes the idle hooks
+    esp_task_wdt_config_t twdtConfig = { };
+    twdtConfig.timeout_ms     = CONFIG_ESP_TASK_WDT_TIMEOUT_S * 1000;
+    twdtConfig.idle_core_mask = 0;
+    #if CONFIG_ESP_TASK_WDT_PANIC
+    twdtConfig.trigger_panic  = true;
+    #endif
+    disabled = (esp_task_wdt_reconfigure(&twdtConfig) == ESP_OK);
+  }
+  #else
+  for (int core = 0; core < portNUM_PROCESSORS; ++core)
+    esp_task_wdt_delete(xTaskGetIdleTaskHandleForCPU(core));
+  #endif
+}
+#endif
+
+
+////////////////////////////////////////////////////////////////////////////////////////////
 // esp_intr_alloc_pinnedToCore
 
 #ifndef FABGL_EMULATED

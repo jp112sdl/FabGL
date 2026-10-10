@@ -71,9 +71,9 @@ void setup()
   Serial.begin(115200); delay(500); Serial.write("\n\nReset\n\n"); // DEBUG ONLY
   #endif
 
-  disableCore0WDT();
+  // remove idle tasks from Task Watchdog (disableCore0WDT/disableCore1WDT flood the log with ESP-IDF 5)
+  fabgl::disableIdleTasksWatchdog();
   delay(100); // experienced crashes without this delay!
-  disableCore1WDT();
 
   // more stack is required for the UI (used inside Terminal.onVirtualKey)
   Terminal.keyboardReaderTaskStackSize = 3000;

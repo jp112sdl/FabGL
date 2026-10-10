@@ -369,9 +369,9 @@ void setup()
   Serial.begin(115200); delay(500); printf("\n\n\nReset\n\n");// DEBUG ONLY
 
 
-  disableCore0WDT();
+  // remove idle tasks from Task Watchdog (disableCore0WDT/disableCore1WDT flood the log with ESP-IDF 5)
+  fabgl::disableIdleTasksWatchdog();
   delay(100); // experienced crashes without this delay!
-  disableCore1WDT();
 
   preferences.begin("PCEmulator", false);
 
