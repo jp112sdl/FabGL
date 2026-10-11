@@ -5,8 +5,15 @@
 
 #include "soc/i2s_struct.h"
 #include "soc/i2s_reg.h"
-#include "driver/periph_ctrl.h"
+#if __has_include("esp_private/periph_ctrl.h")
+  #include "esp_private/periph_ctrl.h"  // driver/periph_ctrl.h is deprecated since ESP-IDF 5
+#else
+  #include "driver/periph_ctrl.h"
+#endif
 #include "soc/rtc.h"
+#if __has_include("esp32/rom/gpio.h")
+  #include "esp32/rom/gpio.h"  // gpio_matrix_out(), no more included by driver/gpio.h since ESP-IDF 5
+#endif
 
 #include "fabutils.h"
 #include "vgatextcontroller.h"

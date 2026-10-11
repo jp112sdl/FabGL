@@ -29,9 +29,12 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "driver/dac.h"
 #include "soc/i2s_reg.h"
-#include "driver/periph_ctrl.h"
+#if __has_include("esp_private/periph_ctrl.h")
+  #include "esp_private/periph_ctrl.h"  // driver/periph_ctrl.h is deprecated since ESP-IDF 5
+#else
+  #include "driver/periph_ctrl.h"
+#endif
 #include "soc/rtc.h"
 #include <soc/sens_reg.h>
 
@@ -355,7 +358,7 @@ void CVBSGenerator::runDMA(lldesc_t volatile * dmaBuffers)
       I2S0.clkm_conf.clkm_div_a            = a;
       I2S0.clkm_conf.clkm_div_num          = 2;  // not less than 2
       I2S0.sample_rate_conf.tx_bck_div_num = 1;  // this makes I2S0O_BCK = I2S0_CLK
-      rtc_clk_apll_enable(true, p.sdm0, p.sdm1, p.sdm2, p.o_div);
+      enableAPLL(p);
       I2S0.clkm_conf.clka_en               = 1;
     }
 
@@ -378,14 +381,13 @@ void CVBSGenerator::runDMA(lldesc_t volatile * dmaBuffers)
     I2S0.out_link.start = 1;
     I2S0.conf.tx_start  = 1;
 
-    dac_i2s_enable();
     if (usePLL) {
       // enable both DACs
-      dac_output_enable(DAC_CHANNEL_1); // GPIO25: DAC1, right channel
-      dac_output_enable(DAC_CHANNEL_2); // GPIO26: DAC2, left channel
+      enableI2SDAC(GPIO_NUM_25); // GPIO25: DAC1, right channel
+      enableI2SDAC(GPIO_NUM_26); // GPIO26: DAC2, left channel
     } else {
       // enable just used DAC
-      dac_output_enable(m_gpio == GPIO_NUM_25 ? DAC_CHANNEL_1 : DAC_CHANNEL_2);
+      enableI2SDAC(m_gpio);
     }
 
     m_DMAStarted = true;

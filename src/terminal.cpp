@@ -35,6 +35,14 @@
 #include "terminal.h"
 #include "devdrivers/mouse.h"
 
+#if FABGL_ESP_IDF_VERSION >= FABGL_ESP_IDF_VERSION_VAL(5, 0, 0)
+  // ESP-IDF 5 or newer: legacy ADC driver conflicts with the new one (ie used by analogRead())
+  #include "esp_adc/adc_oneshot.h"
+  #define FABGL_TERMINAL_ADC_ONESHOT
+#elif !defined(FABGL_EMULATED)
+  #include "driver/adc.h"
+#endif
+
 
 
 #pragma GCC optimize ("O2")
@@ -3323,6 +3331,25 @@ void Terminal::extGetCmdParam(char * cmd)
 }
 
 
+#ifdef FABGL_TERMINAL_ADC_ONESHOT
+
+static adc_oneshot_unit_handle_t s_ADC1Handle = nullptr;
+
+// ADC1 unit is allocated just when necessary
+static bool ADC1Init()
+{
+  if (!s_ADC1Handle) {
+    adc_oneshot_unit_init_cfg_t unitCfg = { };
+    unitCfg.unit_id = ADC_UNIT_1;
+    if (adc_oneshot_new_unit(&unitCfg, &s_ADC1Handle) != ESP_OK)
+      s_ADC1Handle = nullptr;
+  }
+  return s_ADC1Handle != nullptr;
+}
+
+#endif
+
+
 // consume FabGL specific sequence (ESC FABGLEXT_STARTCODE ....)
 void Terminal::consumeFabGLSeq()
 {
@@ -3696,14 +3723,27 @@ void Terminal::consumeFabGLSeq()
     //    GPIONUM (text)     : '32'...'39'
     case FABGLEXTX_SETUPADC:
     {
+      #ifdef FABGL_TERMINAL_ADC_ONESHOT
+      auto width   = (adc_bitwidth_t) extGetIntParam();
+      #else
       auto width   = (adc_bits_width_t) (extGetIntParam() - 9);
+      #endif
       extGetByteParam();  // ';'
       auto atten   = (adc_atten_t) extGetIntParam();
       extGetByteParam();  // ';'
       auto channel = ADC1_GPIO2Channel((gpio_num_t)extGetIntParam());
       extGetByteParam();  // FABGLEXT_ENDCODE
+      #ifdef FABGL_TERMINAL_ADC_ONESHOT
+      if (ADC1Init()) {
+        adc_oneshot_chan_cfg_t chanCfg = { };
+        chanCfg.atten    = atten;
+        chanCfg.bitwidth = width;
+        adc_oneshot_config_channel(s_ADC1Handle, (adc_channel_t) channel, &chanCfg);
+      }
+      #else
       adc1_config_width(width);
       adc1_config_channel_atten(channel, atten);
+      #endif
       break;
     }
 
@@ -3724,7 +3764,14 @@ void Terminal::consumeFabGLSeq()
     //       '0'
     case FABGLEXTX_READADC:
     {
+      #ifdef FABGL_TERMINAL_ADC_ONESHOT
+      int val = 0;
+      auto channel = ADC1_GPIO2Channel((gpio_num_t)extGetIntParam());
+      if (ADC1Init())
+        adc_oneshot_read(s_ADC1Handle, (adc_channel_t) channel, &val);
+      #else
       auto val = adc1_get_raw(ADC1_GPIO2Channel((gpio_num_t)extGetIntParam()));
+      #endif
       extGetByteParam(); // FABGLEXT_ENDCODE
       send(FABGLEXT_REPLYCODE);
       send(toupper(digit2hex((val & 0xF00) >> 8)));
@@ -5156,7 +5203,7 @@ char const * LineEditor::edit(int maxLength)
 
         // "ESC [ B" : cursor Down
         case 'B':
-          performCursorUp();
+          performCursorDown();
           m_state = 0;
           break;
 

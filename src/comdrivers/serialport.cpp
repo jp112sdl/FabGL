@@ -36,6 +36,9 @@
 #include "soc/dport_reg.h"
 #include "soc/rtc.h"
 #include "esp_intr_alloc.h"
+#if __has_include("esp32/rom/gpio.h")
+  #include "esp32/rom/gpio.h"  // gpio_matrix_in() and gpio_matrix_out(), no more included by driver/gpio.h since ESP-IDF 5
+#endif
  
 #include "serialport.h"
  

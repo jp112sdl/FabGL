@@ -26,7 +26,6 @@
 
 
 #include "driver/gpio.h"
-#include "driver/dac.h"
 
 
 #include "HAL.h"
@@ -50,7 +49,7 @@ HAL::HAL()
   m_serialStream[0] = nullptr;
   m_serialStream[1] = nullptr;
 
-  dac_output_enable(DAC_CHANNEL_1);
+  dacWrite(DAC1, 0);
 
   m_Z80.setCallbacks(this, readByte, writeByte, readWord, writeWord, readIO, writeIO);
   CPU_reset();
@@ -398,7 +397,7 @@ void HAL::writeIO(uint16_t addr, uint8_t value)
   logf("writeIO(%04x, %02x)\r\n", addr, value);
   #endif
   if (addr == 0x50) {
-    dac_output_voltage(DAC_CHANNEL_1, value);
+    dacWrite(DAC1, value);
   }
 }
 

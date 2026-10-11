@@ -53,6 +53,12 @@
 #include "fabglconf.h"
 #include "fabutils.h"
 
+#if FABGL_ESP_IDF_VERSION >= FABGL_ESP_IDF_VERSION_VAL(5, 0, 0)
+  // ESP-IDF 5 or newer: legacy sigma-delta driver conflicts with the new one
+  #include "driver/sdm.h"
+  #define FABGL_SOUNDGEN_SDM_DRIVER
+#endif
+
 
 
 namespace fabgl {
@@ -525,6 +531,10 @@ private:
   bool                m_initDone;
   
   esp_timer_handle_t  m_timerHandle;
+
+  #ifdef FABGL_SOUNDGEN_SDM_DRIVER
+  sdm_channel_handle_t m_SDMChannel;
+  #endif
   
   #ifdef FABGL_EMULATED
   SDL_AudioDeviceID   m_device;

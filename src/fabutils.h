@@ -41,7 +41,13 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
-#include <driver/adc.h>
+#if __has_include("driver/adc_types_legacy.h")
+  // ESP-IDF 5 or newer: include just ADC types (legacy ADC driver conflicts with the new one)
+  #include "driver/adc_types_legacy.h"
+  #include "driver/gpio.h"
+#else
+  #include <driver/adc.h>
+#endif
 #include <esp_system.h>
 #include "sdmmc_cmd.h"
 #include "soc/frc_timer_reg.h"
@@ -219,6 +225,14 @@ void APLLCalcParams(double freq, APLLParams * params, uint8_t * a, uint8_t * b, 
 
 #ifndef FABGL_EMULATED
 int calcI2STimingParams(int sampleRate, int * outA, int * outB, int * outN, int * outM);
+
+// enables APLL using params calculated by APLLCalcParams()
+void enableAPLL(APLLParams const & params);
+
+void disableAPLL();
+
+// enables built-in DAC (gpio must be GPIO_NUM_25 or GPIO_NUM_26) and connects it to I2S0 DMA output
+void enableI2SDAC(gpio_num_t gpio);
 #endif
 
 
@@ -497,8 +511,14 @@ struct Delegate {
   void operator=(Func f) {
     cleanUp();
     m_closure  = [] (void * func, const Params & ...params) -> void { (*(Func *)func)(params...); };
-    m_func     = heap_caps_malloc(sizeof(Func), MALLOC_CAP_32BIT | MALLOC_CAP_INTERNAL);
-    moveItems<uint32_t*>((uint32_t*)m_func, (uint32_t*)&f, sizeof(Func) / sizeof(uint32_t));
+    // m_func may be allocated in IRAM, which allows only 32 bit accesses.
+    // Closure is copied using memcpy() into a temporary buffer, otherwise (strict aliasing) newer compilers
+    // remove the closure initialization (captured variables are lost)
+    constexpr int words = (sizeof(Func) + sizeof(uint32_t) - 1) / sizeof(uint32_t);
+    uint32_t closure[words];
+    memcpy(closure, &f, sizeof(Func));
+    m_func     = heap_caps_malloc(words * sizeof(uint32_t), MALLOC_CAP_32BIT | MALLOC_CAP_INTERNAL);
+    moveItems<uint32_t*>((uint32_t*)m_func, closure, words);
   }
 
   // denied assignment from Delegate
@@ -1091,6 +1111,14 @@ void configureGPIO(gpio_num_t gpio, gpio_mode_t mode);
 uint32_t getApbFrequency();
 
 uint32_t getCPUFrequencyMHz();
+
+
+#ifndef FABGL_EMULATED
+// Removes idle tasks of both cores from the Task Watchdog.
+// Use instead of Arduino disableCore0WDT()/disableCore1WDT(): with ESP-IDF 5 they leave the idle hooks
+// installed, which continuously log "task_wdt: esp_task_wdt_reset(): task not found" errors.
+void disableIdleTasksWatchdog();
+#endif
 
 
 

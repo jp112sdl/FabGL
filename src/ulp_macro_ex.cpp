@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // This file is identical to IDF ulp_macro.c, except for redefinition of CONFIG_ULP_COPROC_RESERVE_MEM to allow
-// larger ULP programs
+// larger ULP programs, placed anywhere inside RTC slow memory
 
 #include <stdio.h>
 #include <string.h>
@@ -34,7 +34,7 @@
 
 // fabgl =>
 #undef CONFIG_ULP_COPROC_RESERVE_MEM
-#define CONFIG_ULP_COPROC_RESERVE_MEM 2048
+#define CONFIG_ULP_COPROC_RESERVE_MEM 8192
 // <=
 
 static const char* TAG = "ulp";

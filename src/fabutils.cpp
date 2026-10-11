@@ -44,9 +44,20 @@ extern "C" {
 #include "soc/rtc.h"
 #include "esp_ipc.h"
 #include "soc/adc_channel.h"
+#if __has_include("soc/gpio_periph.h")
+  #include "soc/gpio_periph.h"  // GPIO_PIN_MUX_REG[], no more included by driver/gpio.h since ESP-IDF 5
+#endif
 
 #include "fabutils.h"
 #include "fabglconf.h"
+
+#if FABGL_ESP_IDF_VERSION >= FABGL_ESP_IDF_VERSION_VAL(5, 0, 0)
+  // legacy DAC driver conflicts with the new one, so DAC is configured at low level
+  #include "driver/rtc_io.h"
+  #include "hal/dac_ll.h"
+#elif !defined(FABGL_EMULATED)
+  #include "driver/dac.h"
+#endif
 
 
 
@@ -226,6 +237,42 @@ uint32_t getCPUFrequencyMHz()
   rtc_cpu_freq_config_t conf;
   rtc_clk_cpu_freq_get_config(&conf);
   return conf.freq_mhz;
+}
+#endif
+
+
+////////////////////////////////////////////////////////////////////////////////////////////
+// disableIdleTasksWatchdog
+#ifndef FABGL_EMULATED
+void disableIdleTasksWatchdog()
+{
+  #if FABGL_ESP_IDF_VERSION >= FABGL_ESP_IDF_VERSION_VAL(5, 0, 0)
+  static bool disabled = false;
+  if (!disabled) {
+    uint32_t idleCoreMask = 0;
+    #if CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0
+    idleCoreMask |= 1 << 0;
+    #endif
+    #if CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1
+    idleCoreMask |= 1 << 1;
+    #endif
+    // idle tasks already removed (ie by disableCore0WDT()) must be added again, otherwise esp_task_wdt_reconfigure() aborts
+    for (int core = 0; core < portNUM_PROCESSORS; ++core)
+      if ((idleCoreMask & (1 << core)) && esp_task_wdt_status(xTaskGetIdleTaskHandleForCore(core)) == ESP_ERR_NOT_FOUND)
+        esp_task_wdt_add(xTaskGetIdleTaskHandleForCore(core));
+    // reconfiguring without idle tasks also removes the idle hooks
+    esp_task_wdt_config_t twdtConfig = { };
+    twdtConfig.timeout_ms     = CONFIG_ESP_TASK_WDT_TIMEOUT_S * 1000;
+    twdtConfig.idle_core_mask = 0;
+    #if CONFIG_ESP_TASK_WDT_PANIC
+    twdtConfig.trigger_panic  = true;
+    #endif
+    disabled = (esp_task_wdt_reconfigure(&twdtConfig) == ESP_OK);
+  }
+  #else
+  for (int core = 0; core < portNUM_PROCESSORS; ++core)
+    esp_task_wdt_delete(xTaskGetIdleTaskHandleForCPU(core));
+  #endif
 }
 #endif
 
@@ -1177,7 +1224,23 @@ bool FileBrowser::format(DriveType driveType, int drive)
 
 bool FileBrowser::format(DriveType driveType, int drive)
 {
+  #if FABGL_ESP_IDF_VERSION >= FABGL_ESP_IDF_VERSION_VAL(5, 0, 0)
+  // TWDT is already initialized by the system: just change timeout and panic mode.
+  // Idle tasks mask must be the same of initialization, otherwise idle tasks are unsubscribed/subscribed again.
+  esp_task_wdt_config_t twdtConfig = { };
+  twdtConfig.timeout_ms     = 45000;
+  twdtConfig.idle_core_mask = 0;
+  #if CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0
+  twdtConfig.idle_core_mask |= 1 << 0;
+  #endif
+  #if CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1
+  twdtConfig.idle_core_mask |= 1 << 1;
+  #endif
+  twdtConfig.trigger_panic  = false;
+  esp_task_wdt_reconfigure(&twdtConfig);
+  #else
   esp_task_wdt_init(45, false);
+  #endif
 
   if (driveType == DriveType::SDCard && s_SDCardMounted) {
 
@@ -1197,7 +1260,15 @@ bool FileBrowser::format(DriveType driveType, int drive)
     }
 
     // make filesystem
+    #if defined(FF_LBA64)
+    // FatFs R0.14 or newer
+    MKFS_PARM mkfsParams = { };
+    mkfsParams.fmt     = FM_ANY;
+    mkfsParams.au_size = 16 * 1024;
+    if (f_mkfs(drv, &mkfsParams, buffer, FF_MAX_SS) != FR_OK) {
+    #else
     if (f_mkfs(drv, FM_ANY, 16 * 1024, buffer, FF_MAX_SS) != FR_OK) {
+    #endif
       free(buffer);
       return false;
     }
@@ -1268,7 +1339,7 @@ bool FileBrowser::mountSDCard(bool formatOnFail, char const * mountPath, size_t 
   slot_config.gpio_sck  = int2gpio(CLK);
   slot_config.gpio_cs   = int2gpio(CS);
 
-  esp_vfs_fat_sdmmc_mount_config_t mount_config;
+  esp_vfs_fat_sdmmc_mount_config_t mount_config = { };
   mount_config.format_if_mount_failed = formatOnFail;
   mount_config.max_files              = maxFiles;
   mount_config.allocation_unit_size   = allocationUnitSize;
@@ -1293,7 +1364,7 @@ bool FileBrowser::mountSDCard(bool formatOnFail, char const * mountPath, size_t 
     slot_config.gpio_cs = int2gpio(CS);
     slot_config.host_id = (spi_host_device_t) host.slot;
 
-    esp_vfs_fat_sdmmc_mount_config_t mount_config;
+    esp_vfs_fat_sdmmc_mount_config_t mount_config = { };
     mount_config.format_if_mount_failed = formatOnFail;
     mount_config.max_files              = maxFiles;
     mount_config.allocation_unit_size   = allocationUnitSize;
@@ -1876,6 +1947,52 @@ int calcI2STimingParams(int sampleRate, int * outA, int * outB, int * outN, int 
   }
 
   return APB_CLK_FREQ / ((double)(*outN) + (double)(*outB) / (*outA)) / *outM;
+}
+
+
+void enableAPLL(APLLParams const & params)
+{
+  #if FABGL_ESP_IDF_VERSION >= FABGL_ESP_IDF_VERSION_VAL(5, 0, 0)
+  rtc_clk_apll_enable(true);
+  rtc_clk_apll_coeff_set(params.o_div, params.sdm0, params.sdm1, params.sdm2);
+  #else
+  rtc_clk_apll_enable(true, params.sdm0, params.sdm1, params.sdm2, params.o_div);
+  #endif
+}
+
+
+void disableAPLL()
+{
+  #if FABGL_ESP_IDF_VERSION >= FABGL_ESP_IDF_VERSION_VAL(5, 0, 0)
+  rtc_clk_apll_enable(false);
+  #else
+  rtc_clk_apll_enable(false, 0, 0, 0, 0);
+  #endif
+}
+
+
+#if FABGL_ESP_IDF_VERSION >= FABGL_ESP_IDF_VERSION_VAL(5, 0, 0)
+extern "C" portMUX_TYPE rtc_spinlock;   // defined by ESP-IDF, protects RTC registers
+#endif
+
+
+void enableI2SDAC(gpio_num_t gpio)
+{
+  #if FABGL_ESP_IDF_VERSION >= FABGL_ESP_IDF_VERSION_VAL(5, 0, 0)
+  // same of legacy dac_i2s_enable() + dac_output_enable()
+  rtc_gpio_init(gpio);
+  rtc_gpio_set_direction(gpio, RTC_GPIO_MODE_DISABLED);
+  rtc_gpio_pullup_dis(gpio);
+  rtc_gpio_pulldown_dis(gpio);
+  portENTER_CRITICAL(&rtc_spinlock);
+  dac_ll_digi_enable_dma(true);
+  dac_ll_power_on(gpio == GPIO_NUM_25 ? DAC_CHAN_0 : DAC_CHAN_1);
+  dac_ll_rtc_sync_by_adc(false);
+  portEXIT_CRITICAL(&rtc_spinlock);
+  #else
+  dac_i2s_enable();
+  dac_output_enable(gpio == GPIO_NUM_25 ? DAC_CHANNEL_1 : DAC_CHANNEL_2);
+  #endif
 }
 
 #endif

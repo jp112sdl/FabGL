@@ -30,7 +30,10 @@
 #include "ICMP.h"
 
 #include "Arduino.h"
-#include "WiFiGeneric.h"
+
+// note: don't include WiFi library headers here, otherwise WiFi library is linked in every sketch
+#include "lwip/sockets.h"
+#include "lwip/tcpip.h"
 
 
 namespace fabgl {
@@ -52,9 +55,13 @@ ICMP::~ICMP()
 // -2 = cannot resolve name
 int ICMP::ping(char const * host)
 {
-  IPAddress hostIP((uint32_t)0);
-  if (!WiFiGenericClass::hostByName(host, hostIP))
+  addrinfo hints = { };
+  hints.ai_family = AF_INET;
+  addrinfo * res  = nullptr;
+  if (lwip_getaddrinfo(host, nullptr, &hints, &res) != 0 || res == nullptr)
     return -2;
+  IPAddress hostIP((uint32_t) ((sockaddr_in *) res->ai_addr)->sin_addr.s_addr);
+  lwip_freeaddrinfo(res);
   return ping(hostIP);
 }
 
@@ -83,6 +90,8 @@ int ICMP::ping(IPAddress const &dest)
   hdr->chksum = inet_chksum((uint16_t *) hdr, sizeof(icmp_echo_hdr));
 
   // send Echo request
+  // note: when LWIP_TCPIP_CORE_LOCKING is enabled (ie Arduino core 3.x) raw API requires TCPIP core lock
+  LOCK_TCPIP_CORE();
   raw_pcb * pcb = raw_new(IP_PROTO_ICMP);
   raw_recv(pcb, ICMP::raw_recv_fn, this);
   raw_bind(pcb, IP_ADDR_ANY);
@@ -92,13 +101,16 @@ int ICMP::ping(IPAddress const &dest)
   addr.u_addr.ip4.addr = dest;
   raw_sendto(pcb, hdrbuf, &addr);
   pbuf_free(hdrbuf);
+  UNLOCK_TCPIP_CORE();
 
   result = -1;
   int32_t t1 = micros();
   uint8_t c;
   if (xQueueReceive(m_queue, &c, pdMS_TO_TICKS(TIMEOUT)))
     result = micros() - t1;
+  LOCK_TCPIP_CORE();
   raw_remove(pcb);
+  UNLOCK_TCPIP_CORE();
 
   return result;
 }
